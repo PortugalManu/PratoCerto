@@ -3,7 +3,7 @@
 import { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
 import { firebaseConfig } from './firebase-config.js';
 
-const APP_VERSAO = 1;
+const APP_VERSAO = 2;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
