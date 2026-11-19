@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Prato Certo</title>
+<meta name="description" content="Diário alimentar com a sua dieta e a sua lista de substituição.">
+<meta name="theme-color" content="#2E7A4C">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Prato Certo">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Prato Certo</h1>
+    <div class="date">
+      <button class="icon" id="prevDay" aria-label="Dia anterior">‹</button>
+      <span id="dateLbl">Hoje</span>
+      <button class="icon" id="nextDay" aria-label="Próximo dia">›</button>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-hoje" aria-selected="true">Hoje</button>
+    <button role="tab" id="tab-dieta" aria-selected="false">Minha dieta</button>
+    <button role="tab" id="tab-sugestoes" aria-selected="false">Sugestões</button>
+  </div>
+
+  <!-- HOJE -->
+  <section id="view-hoje" class="view">
+    <div class="card" id="summary">
+      <div class="kcal"><b id="kcalNow">0</b><small id="kcalOf"></small></div>
+      <div class="bar"><i id="kcalBar" style="width:0"></i></div>
+      <div class="macros">
+        <div class="macro p" id="mP"><span class="lbl">Proteína</span><span class="val"></span><div class="bar"><i></i></div></div>
+        <div class="macro c" id="mC"><span class="lbl">Carbo</span><span class="val"></span><div class="bar"><i></i></div></div>
+        <div class="macro f" id="mF"><span class="lbl">Gordura</span><span class="val"></span><div class="bar"><i></i></div></div>
+      </div>
+      <p class="hint" id="remaining"></p>
+    </div>
+
+    <div class="card">
+      <h2>O que você comeu?</h2>
+      <textarea id="logText" placeholder="comi 30g de arroz, 100g de frango e 2 ovos&#10;macarrão com carne tudo 140g"></textarea>
+      <div class="chips" id="mealChips"></div>
+      <div class="row end">
+        <span class="status" id="logStatus"></span>
+        <button class="primary" id="addBtn">Adicionar</button>
+      </div>
+      <!-- quando um alimento não é reconhecido -->
+      <div id="manualBox" class="view" style="gap:8px" hidden>
+        <p class="hint" id="manualMsg"></p>
+        <div class="manual">
+          <label>Alimento<input type="text" id="manName"></label>
+          <label>Gramas<input type="number" id="manGrams" inputmode="decimal"></label>
+          <label>Kcal<input type="number" id="manKcal" inputmode="decimal"></label>
+          <label>Proteína (g)<input type="number" id="manP" inputmode="decimal"></label>
+        </div>
+        <label class="hint">Ou conte como porções de um grupo:
+          <select id="manGroup"></select>
+        </label>
+        <div class="row end"><button class="ghost" id="manSkip">Ignorar</button><button id="manAdd">Adicionar este</button></div>
+      </div>
+    </div>
+
+    <div id="meals" class="view"></div>
+  </section>
+
+  <!-- DIETA -->
+  <section id="view-dieta" class="view" hidden>
+    <div class="card" id="dietView"></div>
+
+    <div class="card">
+      <h2>Atualizar a dieta</h2>
+      <p class="hint">Dieta nova? Mande a foto dela para o Claude Code. Ele te devolve um código da dieta: cole aqui e toque em <strong>Usar esta dieta</strong>. Os dias já registrados continuam comparados com a dieta da época.</p>
+      <textarea id="dietCode" rows="4" placeholder='Cole aqui o código da dieta (começa com {"meals":…)'></textarea>
+      <div class="row end">
+        <span class="status" id="dietStatus"></span>
+        <button class="primary" id="importDiet">Usar esta dieta</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Metas do dia</h2>
+      <p class="hint">Calculadas pelas porções da dieta. Se a nutricionista passou outros números, ajuste aqui.</p>
+      <div class="grid4">
+        <label>Calorias (kcal)<input type="number" id="tKcal" inputmode="numeric"></label>
+        <label>Proteína (g)<input type="number" id="tP" inputmode="numeric"></label>
+        <label>Carbo (g)<input type="number" id="tC" inputmode="numeric"></label>
+        <label>Gordura (g)<input type="number" id="tF" inputmode="numeric"></label>
+      </div>
+      <div class="row end"><span class="status" id="targetStatus"></span><button id="resetTargets" class="ghost">Usar valores da dieta</button><button id="saveTargets">Salvar metas</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Lista de substituição</h2>
+      <p class="hint">Sua lista com 528 alimentos. Busque um alimento para ver o grupo e quanto vale 1 porção.</p>
+      <input type="search" id="listSearch" placeholder="Buscar: cuscuz, iogurte grego, tilápia…">
+      <div id="listResults" class="subs" style="max-height:340px"></div>
+    </div>
+  </section>
+
+  <!-- SUGESTOES -->
+  <section id="view-sugestoes" class="view" hidden>
+    <div class="card">
+      <h2>Montar um prato</h2>
+      <p class="hint">Combinações feitas com a sua lista de substituição, nas porções que a dieta pede para a refeição.</p>
+      <div class="chips" id="sugMealChips"></div>
+      <div class="row end">
+        <span class="status" id="sugStatus"></span>
+        <button class="primary" id="sugBtn">Montar pratos</button>
+      </div>
+    </div>
+    <div class="card" id="sugList"><p class="empty">Escolha a refeição e toque em “Montar pratos”.</p></div>
+  </section>
+
+  <div class="card">
+    <div class="account" id="account">
+      <span id="accountTxt">Salvando só neste celular.</span>
+      <span class="row">
+        <button class="small" id="installBtn" hidden>Instalar app</button>
+        <button class="small" id="loginBtn" hidden>Entrar com Google</button>
+        <button class="small ghost" id="logoutBtn" hidden>Sair</button>
+      </span>
+    </div>
+  </div>
+
+  <footer>Calorias pela sua lista de substituição; proteína, carbo e gordura aproximados (Tabela TACO). Não substitui a orientação da sua nutricionista.</footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
