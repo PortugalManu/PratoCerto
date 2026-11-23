@@ -205,4 +205,7 @@ function localParse(text,preferGroups){
 }
 
 
-export { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, matchFood, toItem, localParse };
+let LIST_PROMPT = null;
+function listPrompt() { return LIST_PROMPT ??= GROUPS.map(g => g.free ? `## ${g.name}: à vontade, 0 kcal` : `## ${g.name} (1 porção = ${g.kcal} kcal)\n` + g.items.map(i => `${i.name}: ${String(i.qty).replace('.', ',')} ${i.measure} = ${i.g}g`).join('\n')).join('\n\n'); }
+
+export { listPrompt, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, matchFood, toItem, localParse };

@@ -51,8 +51,12 @@
       <div class="chips" id="mealChips"></div>
       <div class="row end">
         <span class="status" id="logStatus"></span>
+        <button id="photoBtn" hidden title="Se souber o peso de algo, escreva no campo acima antes da foto">📷 Foto do prato</button>
         <button class="primary" id="addBtn">Adicionar</button>
       </div>
+      <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+      <!-- revisão do que o Gemini viu na foto -->
+      <div id="photoReview" class="view" style="gap:8px" hidden></div>
       <!-- quando um alimento não é reconhecido -->
       <div id="manualBox" class="view" style="gap:8px" hidden>
         <p class="hint" id="manualMsg"></p>
@@ -79,11 +83,29 @@
     <div class="card">
       <h2>Atualizar a dieta</h2>
       <p class="hint">Dieta nova? Mande a foto dela para o Claude Code. Ele te devolve um código da dieta: cole aqui e toque em <strong>Usar esta dieta</strong>. Os dias já registrados continuam comparados com a dieta da época.</p>
+      <div class="row" id="dietPhotoRow" hidden>
+        <button id="dietPhotoBtn">📷 Ler foto da dieta</button>
+        <span class="hint">pode escolher mais de uma foto</span>
+      </div>
+      <input type="file" id="dietPhotoInput" accept="image/*" multiple hidden>
+      <div id="dietPreview" class="view" style="gap:6px" hidden></div>
       <textarea id="dietCode" rows="4" placeholder='Cole aqui o código da dieta (começa com {"meals":…)'></textarea>
       <div class="row end">
         <span class="status" id="dietStatus"></span>
         <button class="primary" id="importDiet">Usar esta dieta</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Leitura por foto (Gemini)</h2>
+      <p class="hint" id="geminiInfo">Com uma chave grátis do Gemini, o app lê foto do prato, foto da dieta e frases que ele não reconhece sozinho. A chave fica guardada só neste celular.</p>
+      <ol class="hint" style="margin:0;padding-left:18px">
+        <li>Abra <strong>aistudio.google.com/apikey</strong> e entre com sua conta Google.</li>
+        <li>Toque em <strong>Criar chave de API</strong> (Create API key) e copie.</li>
+        <li>Cole aqui e salve.</li>
+      </ol>
+      <input type="password" id="geminiKey" placeholder="Cole a chave aqui (começa com AIza…)" autocomplete="off">
+      <div class="row end"><span class="status" id="geminiStatus"></span><button class="ghost" id="geminiRemove">Remover</button><button id="geminiSave">Salvar chave</button></div>
     </div>
 
     <div class="card">

@@ -2,8 +2,9 @@
  * Registros e dieta ficam no Firebase (sua conta Google) e, como cópia, no próprio celular. */
 import { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
 import { firebaseConfig } from './firebase-config.js';
+import { getKey, setKey, prepararFoto, lerPrato, lerFrase, lerDieta } from './gemini.js';
 
-const APP_VERSAO = 2;
+const APP_VERSAO = 3;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -239,9 +240,110 @@ async function addEntry() {
   const text = $('logText').value.trim(); if (!text) return;
   const meal = selMeal || guessMeal();
   const res = localParse(text, mealGroups(meal));
+  if (res.unknown.length && getKey()) {
+    const btn = $('addBtn'); btn.disabled = true; setStatus('logStatus', 'Perguntando ao Gemini…');
+    try {
+      const j = await lerFrase(text, mealGroups(meal));
+      const items = (j?.items || []).map(cleanAiItem).filter(i => i.grams || i.kcal);
+      if (items.length) { await commitEntry(text, meal, items, true); return; }
+    } catch (e) { setStatus('logStatus', e.message, true); }
+    finally { btn.disabled = false; }
+  }
   if (res.unknown.length) { askManual({ text, meal, items: res.items, estimated: res.estimated, unknown: res.unknown }); return; }
   await commitEntry(text, meal, res.items, res.estimated);
 }
+
+/* Item vindo do Gemini → item do app (usa a lista quando o nome bate) */
+function cleanAiItem(i) {
+  const grams = Math.max(0, +i.grams || 0), it = itemByName(i.name || '');
+  if (it) {
+    const base = toItem({ kind: 'list', it, taco: PREF_IDX.find(x => x.it === it)?.taco }, grams);
+    return { ...base, p: i.p != null && !PREF_IDX.some(x => x.it === it) ? r1(+i.p) : base.p };
+  }
+  const group = GBY[i.group] && !GBY[i.group].free ? i.group : GBY[i.group]?.free ? i.group : 'Fora da lista';
+  if (GBY[group]?.free) return { name: String(i.name || 'Salada'), grams: r0(grams), group, portions: 0, kcal: r0(+i.kcal || grams * 0.2), p: r1(+i.p || 0), c: r1(+i.c || 0), f: r1(+i.f || 0) };
+  if (group !== 'Fora da lista') { // grupo certo mas nome fora da lista: usa a média de gramas do grupo
+    const g = GBY[group], avg = g.items.reduce((a, x) => a + x.g, 0) / g.items.length, portions = r2(grams / avg), gm = GROUP_MACROS[group];
+    return { name: String(i.name), grams: r0(grams), group, portions, kcal: r0(portions * g.kcal), p: r1(+i.p || gm.p * portions), c: r1(+i.c || gm.c * portions), f: r1(+i.f || gm.f * portions) };
+  }
+  return { name: String(i.name || 'Alimento'), grams: r0(grams), group: 'Fora da lista', portions: 0, kcal: r0(+i.kcal || 0), p: r1(+i.p || 0), c: r1(+i.c || 0), f: r1(+i.f || 0) };
+}
+function rescale(orig, grams) { // mudar o peso de um item já calculado
+  const it = itemByName(orig.name);
+  if (it) return cleanAiItem({ ...orig, grams, p: orig.grams ? orig.p * grams / orig.grams : orig.p });
+  const k = orig.grams ? grams / orig.grams : 1;
+  return { ...orig, grams: r0(grams), portions: r2(orig.portions * k), kcal: r0(orig.kcal * k), p: r1(orig.p * k), c: r1(orig.c * k), f: r1(orig.f * k) };
+}
+
+/* ===== Foto do prato ===== */
+let review = null; // {meal, desc, items:[{orig, cur}], img}
+async function photoChosen(file) {
+  if (!file) return;
+  const meal = selMeal || guessMeal(), note = $('logText').value.trim();
+  const box = $('photoReview'); box.hidden = false;
+  const img = el('img', { class: 'preview-img', alt: 'Foto do prato', src: URL.createObjectURL(file) });
+  box.replaceChildren(img, el('p', { class: 'hint' }, 'O Gemini está olhando o prato… (uns 5 a 15 segundos)'));
+  $('photoBtn').disabled = true;
+  try {
+    const foto = await prepararFoto(file);
+    const j = await lerPrato(foto, note, mealGroups(meal));
+    const items = (j?.items || []).map(cleanAiItem).filter(i => i.grams || i.kcal);
+    if (!items.length) { box.replaceChildren(img, el('p', { class: 'hint err' }, 'Não identifiquei comida nessa foto. Tente de novo, com o prato inteiro aparecendo.')); return; }
+    review = { meal, note, desc: String(j.descricao || items.map(i => i.name).join(', ')), img, items: items.map(i => ({ orig: i, cur: i })) };
+    renderReview();
+  } catch (e) { box.replaceChildren(img, el('p', { class: 'status err' }, e.message), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'))); }
+  finally { $('photoBtn').disabled = false; $('photoInput').value = ''; }
+}
+function renderReview() {
+  const r = review, box = $('photoReview');
+  const s = sum(r.items.map(x => x.cur));
+  box.replaceChildren(r.img,
+    el('p', { class: 'hint' }, 'Confira o que o Gemini viu e corrija os pesos se precisar. ', el('strong', {}, 'Refeição: ' + r.meal)),
+    ...r.items.map((x, idx) => el('div', { class: 'rev' },
+      el('span', { class: 'n' }, x.cur.name, x.cur.portions ? ' ' : '', x.cur.portions ? el('span', { class: 'tag' }, `${fmtN(x.cur.portions)} ${x.cur.group}`) : x.cur.group === 'Fora da lista' ? el('span', { class: 'tag out' }, ' fora da lista') : null),
+      el('input', { type: 'number', inputmode: 'decimal', value: x.cur.grams, 'aria-label': 'Gramas de ' + x.cur.name, onchange: e => { x.cur = rescale(x.orig, Math.max(0, +e.target.value || 0)); renderReview(); } }),
+      el('button', { class: 'ghost icon', 'aria-label': 'Tirar ' + x.cur.name, onclick: () => { r.items.splice(idx, 1); renderReview(); } }, '✕'),
+      el('span', { class: 'm' }, `${x.cur.grams}g · ${r0(x.cur.kcal)} kcal · P ${r1(x.cur.p)}g`))),
+    el('p', { class: 'nums' }, `Total: ${r0(s.kcal)} kcal · `, el('span', { class: 'p' }, `P ${r0(s.p)}g`), ` · C ${r0(s.c)}g · G ${r0(s.f)}g`),
+    el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Descartar'), el('button', { class: 'primary', onclick: confirmReview, disabled: !r.items.length }, 'Adicionar em ' + r.meal)));
+}
+function closeReview() { review = null; $('photoReview').hidden = true; $('photoReview').replaceChildren(); }
+async function confirmReview() {
+  const r = review; if (!r) return;
+  closeReview();
+  await commitEntry('📷 ' + r.desc + (r.note ? ' — ' + r.note : ''), r.meal, r.items.map(x => x.cur), true);
+}
+
+/* ===== Foto da dieta ===== */
+async function dietPhotosChosen(files) {
+  if (!files?.length) return;
+  const btn = $('dietPhotoBtn'); btn.disabled = true;
+  const prev = $('dietPreview'); prev.hidden = false; prev.replaceChildren(el('p', { class: 'hint' }, 'O Gemini está lendo a dieta… pode levar até 1 minuto.'));
+  try {
+    const fotos = await Promise.all([...files].slice(0, 4).map(f => prepararFoto(f, 1600)));
+    const j = await lerDieta(fotos);
+    const diet = parseDietCode(JSON.stringify(j));
+    $('dietCode').value = JSON.stringify({ meals: diet.meals, targets: diet.targets, notes: diet.notes });
+    const t = targets(diet);
+    prev.replaceChildren(el('p', { class: 'hint' }, el('strong', {}, 'Confira a leitura:'), ` ${t.kcal} kcal e ~${t.p}g de proteína por dia. Se estiver certo, toque em `, el('strong', {}, 'Usar esta dieta'), '. Se algo vier errado, use a dieta e depois ajuste em Editar.'),
+      ...diet.meals.map(m => el('div', { class: 'hint' }, el('strong', {}, m.name + (m.time ? ' · ' + m.time : '') + ': '), m.portions.map(p => GBY[p.group]?.free ? 'vegetais à vontade' : `${fmtN(p.n)} ${p.group}${p.text ? ' (' + p.text + ')' : ''}`).join(', '))));
+    setStatus('dietStatus', '');
+  } catch (e) { prev.replaceChildren(el('p', { class: 'status err' }, e.message || 'Não consegui ler a dieta.')); }
+  finally { btn.disabled = false; $('dietPhotoInput').value = ''; }
+}
+
+/* ===== Chave do Gemini ===== */
+function refreshGemini() {
+  const has = !!getKey();
+  $('photoBtn').hidden = !has; $('dietPhotoRow').hidden = !has; $('geminiRemove').hidden = !has;
+  $('geminiKey').value = ''; $('geminiKey').placeholder = has ? 'Chave salva neste celular ✓ (cole outra para trocar)' : 'Cole a chave aqui (começa com AIza…)';
+}
+$('geminiSave').onclick = () => { const k = $('geminiKey').value.trim(); if (!/^[A-Za-z0-9_\-]{30,}$/.test(k)) { setStatus('geminiStatus', 'Essa chave parece incompleta. Copie de novo do AI Studio.', true); return; } setKey(k); refreshGemini(); setStatus('geminiStatus', 'Chave salva. Os botões de foto já apareceram.'); };
+$('geminiRemove').onclick = () => { setKey(''); refreshGemini(); setStatus('geminiStatus', 'Chave removida deste celular.'); };
+$('photoBtn').onclick = () => $('photoInput').click();
+$('photoInput').addEventListener('change', e => photoChosen(e.target.files[0]));
+$('dietPhotoBtn').onclick = () => $('dietPhotoInput').click();
+$('dietPhotoInput').addEventListener('change', e => dietPhotosChosen(e.target.files));
 async function commitEntry(text, meal, items, estimated) {
   if (!items.length) return;
   day.entries.push({ id: uid(), meal, text, items, estimated, ts: Date.now() });
@@ -303,7 +405,7 @@ async function importDiet() {
   try {
     const diet = parseDietCode($('dietCode').value);
     await setDiet(diet);
-    $('dietCode').value = '';
+    $('dietCode').value = ''; $('dietPreview').hidden = true;
     setStatus('dietStatus', `Dieta nova salva: ${diet.meals.length} refeições.`);
   } catch (e) { setStatus('dietStatus', e instanceof SyntaxError ? 'O código está incompleto. Copie de novo, do { até o }.' : e.message, true); }
 }
@@ -439,7 +541,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 /* --- começo --- */
 const lp = local.get('profile'); if (okProfile(lp)) profile = lp;
 selMeal = guessMeal();
-renderAll(); renderList();
+renderAll(); renderList(); refreshGemini();
 loadDay();
 initFirebase();
 console.info('Prato Certo versão', APP_VERSAO);
