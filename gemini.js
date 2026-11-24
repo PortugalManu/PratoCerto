@@ -9,6 +9,16 @@ const URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 export function getKey() { try { return localStorage.getItem(LS) || ''; } catch { return ''; } }
 export function setKey(k) { try { k ? localStorage.setItem(LS, k.trim()) : localStorage.removeItem(LS); } catch {} }
 
+/* Confere a chave com uma consulta que não gasta cota */
+export async function testarChave(key) {
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { headers: { 'x-goog-api-key': key } });
+    if (r.ok) return { ok: true };
+    const j = await r.json().catch(() => ({}));
+    return { ok: false, msg: j?.error?.message || ('erro ' + r.status) };
+  } catch { return { ok: false, rede: true }; }
+}
+
 /* Reduz a foto (até ~1280 px, JPEG) antes de enviar: mais rápido e gasta menos cota */
 export async function prepararFoto(file, max = 1280) {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));

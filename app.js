@@ -2,9 +2,9 @@
  * Registros e dieta ficam no Firebase (sua conta Google) e, como cópia, no próprio celular. */
 import { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
 import { firebaseConfig } from './firebase-config.js';
-import { getKey, setKey, prepararFoto, lerPrato, lerFrase, lerDieta } from './gemini.js';
+import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta } from './gemini.js';
 
-const APP_VERSAO = 3;
+const APP_VERSAO = 4;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -338,7 +338,15 @@ function refreshGemini() {
   $('photoBtn').hidden = !has; $('dietPhotoRow').hidden = !has; $('geminiRemove').hidden = !has;
   $('geminiKey').value = ''; $('geminiKey').placeholder = has ? 'Chave salva neste celular ✓ (cole outra para trocar)' : 'Cole a chave aqui (começa com AIza…)';
 }
-$('geminiSave').onclick = () => { const k = $('geminiKey').value.trim(); if (!/^[A-Za-z0-9_\-]{30,}$/.test(k)) { setStatus('geminiStatus', 'Essa chave parece incompleta. Copie de novo do AI Studio.', true); return; } setKey(k); refreshGemini(); setStatus('geminiStatus', 'Chave salva. Os botões de foto já apareceram.'); };
+$('geminiSave').onclick = async () => {
+  const k = $('geminiKey').value.replace(/\s+/g, '').replace(/^["']|["']$/g, ''); // tira espaços e quebras de linha do copiar/colar
+  if (k.length < 20) { setStatus('geminiStatus', 'Essa chave parece incompleta. Copie de novo do AI Studio.', true); return; }
+  const btn = $('geminiSave'); btn.disabled = true; setStatus('geminiStatus', 'Testando a chave…');
+  const r = await testarChave(k); btn.disabled = false;
+  if (r.ok) { setKey(k); refreshGemini(); setStatus('geminiStatus', 'Chave funcionando e salva. Os botões de foto já apareceram.'); }
+  else if (r.rede) { setKey(k); refreshGemini(); setStatus('geminiStatus', 'Salvei a chave, mas não consegui testar agora (sem internet?).'); }
+  else setStatus('geminiStatus', 'O Google não aceitou essa chave: ' + r.msg, true);
+};
 $('geminiRemove').onclick = () => { setKey(''); refreshGemini(); setStatus('geminiStatus', 'Chave removida deste celular.'); };
 $('photoBtn').onclick = () => $('photoInput').click();
 $('photoInput').addEventListener('change', e => photoChosen(e.target.files[0]));
