@@ -62,13 +62,28 @@ const FORMATO_ITENS = `Responda só JSON: {"items":[{"name":"Arroz polido cozido
 - "grams": peso estimado em gramas. "kcal","p","c","f": calorias, proteína, carboidrato e gordura daquela quantidade (Tabela TACO).
 - Vegetais crus/folhas: group "Vegetal cru ou cozido".`;
 
-/* Foto do prato → itens com peso estimado */
-export function lerPrato(foto, observacao, gruposDaRefeicao) {
-  return perguntar([foto, { text:
-`Você é nutricionista brasileiro. Identifique cada alimento da foto do prato e estime o peso em gramas do que aparece (use o tamanho do prato e talheres como referência).
-${observacao ? `A pessoa disse: "${observacao}". Quando ela informar um peso, use esse peso.` : ''}
+/* Foto(s) do prato, print do pedido do iFood ou da página do restaurante → itens com peso estimado */
+export function lerPrato(fotos, observacao, gruposDaRefeicao) {
+  return perguntar([...fotos, { text:
+`Você é nutricionista brasileiro. As imagens são do que a pessoa comeu nesta refeição. Podem ser:
+(a) foto do prato ou da embalagem/marmita;
+(b) print de pedido de delivery (iFood, Rappi, Aiqfome, WhatsApp do restaurante) ou da página do prato com a descrição;
+(c) uma mistura: o print do pedido e a foto da comida que chegou. Nesse caso é a MESMA comida: use o print para saber o que é e a foto para o tamanho. Não conte duas vezes.
+
+Como trabalhar:
+1. Separe cada prato/item do pedido e DECOMPONHA em ingredientes (ex.: "Parmegiana com arroz e fritas" → filé empanado, molho de tomate, queijo muçarela, arroz, batata frita; "Poke de salmão" → arroz japonês, salmão cru, manga, molho shoyu…). Cada ingrediente vira um item.
+2. Peso: se o print ou a descrição disser peso, tamanho ou quantidade ("500g", "marmita grande", "serve 2 pessoas", "6 unidades", "2x"), use isso. "2x" ou "Qtd: 2" = dobro. Sem informação, use porções típicas de restaurante brasileiro daquele tipo de prato (costumam ser maiores que as caseiras) e, na foto, compare com talheres, embalagem ou prato.
+3. Comida de restaurante/delivery leva mais óleo: conte isso em "f" e "kcal" (ex.: arroz e feijão de restaurante, frituras, molhos cremosos).
+4. Bebidas também contam (refrigerante, suco, cerveja). Ignore preço, taxa de entrega, cupom, talheres, guardanapo e itens marcados como cancelados.
+5. Molhos, maionese, ketchup, sachês: inclua se aparecerem no pedido ou na foto.
+${observacao ? `6. A pessoa escreveu: "${observacao}". Isso manda: se informar peso, use; se disser que comeu metade, dividiu com alguém ou deixou algo, ajuste as gramas só do que ELA comeu.` : '6. Se o pedido parecer para mais de uma pessoa (ex.: "serve 2", combo família), estime só 1 pessoa e diga isso em "observacao".'}
 ${gruposDaRefeicao.length ? `A dieta desta refeição usa os grupos: ${gruposDaRefeicao.join(', ')}. Em caso de dúvida entre grupos, prefira esses.` : ''}
+Use "nota" curta por item quando o peso vier do pedido ou for um palpite importante (ex.: "500g do pedido", "palpite: porção de restaurante").
+Use "observacao" (uma frase) para avisar algo útil para a pessoa (ex.: "Pedido de 2 pessoas: calculei a metade."); senão "".
+Se as imagens não forem de comida, responda {"items":[],"descricao":"","observacao":"Não encontrei comida nas imagens."}
+
 ${FORMATO_ITENS}
+Campos extras: "nota" em cada item (opcional) e "observacao" no objeto principal.
 
 LISTA DE SUBSTITUIÇÃO (cada linha = 1 porção do grupo):
 ${listPrompt()}` }]);

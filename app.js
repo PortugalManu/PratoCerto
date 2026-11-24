@@ -4,7 +4,7 @@ import { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, ite
 import { firebaseConfig } from './firebase-config.js';
 import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta } from './gemini.js';
 
-const APP_VERSAO = 4;
+const APP_VERSAO = 5;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -255,6 +255,13 @@ async function addEntry() {
 
 /* Item vindo do Gemini → item do app (usa a lista quando o nome bate) */
 function cleanAiItem(i) {
+  const out = cleanAiItem0(i);
+  // comida de restaurante (fritura, óleo, molho): se o Gemini calculou bem mais calorias, vale a conta dele
+  const k = +i.kcal || 0;
+  if (out.portions && k > out.kcal * 1.15) return { ...out, kcal: r0(k), f: r1(Math.max(out.f, +i.f || 0)), c: r1(Math.max(out.c, +i.c || 0)) };
+  return out;
+}
+function cleanAiItem0(i) {
   const grams = Math.max(0, +i.grams || 0), it = itemByName(i.name || '');
   if (it) {
     const base = toItem({ kind: 'list', it, taco: PREF_IDX.find(x => x.it === it)?.taco }, grams);
@@ -269,41 +276,42 @@ function cleanAiItem(i) {
   return { name: String(i.name || 'Alimento'), grams: r0(grams), group: 'Fora da lista', portions: 0, kcal: r0(+i.kcal || 0), p: r1(+i.p || 0), c: r1(+i.c || 0), f: r1(+i.f || 0) };
 }
 function rescale(orig, grams) { // mudar o peso de um item já calculado
-  const it = itemByName(orig.name);
-  if (it) return cleanAiItem({ ...orig, grams, p: orig.grams ? orig.p * grams / orig.grams : orig.p });
   const k = orig.grams ? grams / orig.grams : 1;
-  return { ...orig, grams: r0(grams), portions: r2(orig.portions * k), kcal: r0(orig.kcal * k), p: r1(orig.p * k), c: r1(orig.c * k), f: r1(orig.f * k) };
+  if (orig.portions) return { ...cleanAiItem({ ...orig, grams, kcal: orig.kcal * k, p: orig.p * k, c: orig.c * k, f: orig.f * k }), nota: orig.nota };
+  return { ...orig, grams: r0(grams), kcal: r0(orig.kcal * k), p: r1(orig.p * k), c: r1(orig.c * k), f: r1(orig.f * k) };
 }
 
 /* ===== Foto do prato ===== */
 let review = null; // {meal, desc, items:[{orig, cur}], img}
-async function photoChosen(file) {
-  if (!file) return;
+async function photoChosen(fileList) {
+  const files = [...(fileList || [])].slice(0, 4);
+  if (!files.length) return;
   const meal = selMeal || guessMeal(), note = $('logText').value.trim();
   const box = $('photoReview'); box.hidden = false;
-  const img = el('img', { class: 'preview-img', alt: 'Foto do prato', src: URL.createObjectURL(file) });
-  box.replaceChildren(img, el('p', { class: 'hint' }, 'O Gemini está olhando o prato… (uns 5 a 15 segundos)'));
-  $('photoBtn').disabled = true;
+  const img = el('div', { class: 'thumbs' }, ...files.map(f => el('img', { class: 'preview-img', alt: 'Foto escolhida', src: URL.createObjectURL(f) })));
+  box.replaceChildren(img, el('p', { class: 'hint' }, 'O Gemini está olhando ' + (files.length > 1 ? 'as fotos' : 'a foto') + '… (uns 5 a 20 segundos)'));
+  $('cameraBtn').disabled = $('galleryBtn').disabled = true;
   try {
-    const foto = await prepararFoto(file);
-    const j = await lerPrato(foto, note, mealGroups(meal));
-    const items = (j?.items || []).map(cleanAiItem).filter(i => i.grams || i.kcal);
-    if (!items.length) { box.replaceChildren(img, el('p', { class: 'hint err' }, 'Não identifiquei comida nessa foto. Tente de novo, com o prato inteiro aparecendo.')); return; }
-    review = { meal, note, desc: String(j.descricao || items.map(i => i.name).join(', ')), img, items: items.map(i => ({ orig: i, cur: i })) };
+    const fotos = await Promise.all(files.map(f => prepararFoto(f, 1600)));
+    const j = await lerPrato(fotos, note, mealGroups(meal));
+    const items = (j?.items || []).map(i => ({ ...cleanAiItem(i), nota: i.nota ? String(i.nota) : '' })).filter(i => i.grams || i.kcal);
+    if (!items.length) { box.replaceChildren(img, el('p', { class: 'hint err' }, String(j?.observacao || 'Não identifiquei comida nessa foto. Tente de novo, com o prato inteiro ou o pedido aparecendo.')), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'))); return; }
+    review = { meal, note, desc: String(j.descricao || items.map(i => i.name).join(', ')), obs: String(j.observacao || ''), img, items: items.map(i => ({ orig: i, cur: i })) };
     renderReview();
   } catch (e) { box.replaceChildren(img, el('p', { class: 'status err' }, e.message), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'))); }
-  finally { $('photoBtn').disabled = false; $('photoInput').value = ''; }
+  finally { $('cameraBtn').disabled = $('galleryBtn').disabled = false; $('photoInput').value = ''; $('galleryInput').value = ''; }
 }
 function renderReview() {
   const r = review, box = $('photoReview');
   const s = sum(r.items.map(x => x.cur));
   box.replaceChildren(r.img,
     el('p', { class: 'hint' }, 'Confira o que o Gemini viu e corrija os pesos se precisar. ', el('strong', {}, 'Refeição: ' + r.meal)),
+    r.obs ? el('p', { class: 'hint' }, '💬 ' + r.obs) : null,
     ...r.items.map((x, idx) => el('div', { class: 'rev' },
       el('span', { class: 'n' }, x.cur.name, x.cur.portions ? ' ' : '', x.cur.portions ? el('span', { class: 'tag' }, `${fmtN(x.cur.portions)} ${x.cur.group}`) : x.cur.group === 'Fora da lista' ? el('span', { class: 'tag out' }, ' fora da lista') : null),
       el('input', { type: 'number', inputmode: 'decimal', value: x.cur.grams, 'aria-label': 'Gramas de ' + x.cur.name, onchange: e => { x.cur = rescale(x.orig, Math.max(0, +e.target.value || 0)); renderReview(); } }),
       el('button', { class: 'ghost icon', 'aria-label': 'Tirar ' + x.cur.name, onclick: () => { r.items.splice(idx, 1); renderReview(); } }, '✕'),
-      el('span', { class: 'm' }, `${x.cur.grams}g · ${r0(x.cur.kcal)} kcal · P ${r1(x.cur.p)}g`))),
+      el('span', { class: 'm' }, `${x.cur.grams}g · ${r0(x.cur.kcal)} kcal · P ${r1(x.cur.p)}g`, x.orig.nota ? ' · ' + x.orig.nota : ''))),
     el('p', { class: 'nums' }, `Total: ${r0(s.kcal)} kcal · `, el('span', { class: 'p' }, `P ${r0(s.p)}g`), ` · C ${r0(s.c)}g · G ${r0(s.f)}g`),
     el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Descartar'), el('button', { class: 'primary', onclick: confirmReview, disabled: !r.items.length }, 'Adicionar em ' + r.meal)));
 }
@@ -335,7 +343,7 @@ async function dietPhotosChosen(files) {
 /* ===== Chave do Gemini ===== */
 function refreshGemini() {
   const has = !!getKey();
-  $('photoBtn').hidden = !has; $('dietPhotoRow').hidden = !has; $('geminiRemove').hidden = !has;
+  $('photoRow').hidden = !has; $('dietPhotoRow').hidden = !has; $('geminiRemove').hidden = !has;
   $('geminiKey').value = ''; $('geminiKey').placeholder = has ? 'Chave salva neste celular ✓ (cole outra para trocar)' : 'Cole a chave aqui (começa com AIza…)';
 }
 $('geminiSave').onclick = async () => {
@@ -348,8 +356,10 @@ $('geminiSave').onclick = async () => {
   else setStatus('geminiStatus', 'O Google não aceitou essa chave: ' + r.msg, true);
 };
 $('geminiRemove').onclick = () => { setKey(''); refreshGemini(); setStatus('geminiStatus', 'Chave removida deste celular.'); };
-$('photoBtn').onclick = () => $('photoInput').click();
-$('photoInput').addEventListener('change', e => photoChosen(e.target.files[0]));
+$('cameraBtn').onclick = () => $('photoInput').click();
+$('galleryBtn').onclick = () => $('galleryInput').click();
+$('photoInput').addEventListener('change', e => photoChosen(e.target.files));
+$('galleryInput').addEventListener('change', e => photoChosen(e.target.files));
 $('dietPhotoBtn').onclick = () => $('dietPhotoInput').click();
 $('dietPhotoInput').addEventListener('change', e => dietPhotosChosen(e.target.files));
 async function commitEntry(text, meal, items, estimated) {

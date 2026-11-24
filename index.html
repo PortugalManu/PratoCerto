@@ -51,10 +51,17 @@
       <div class="chips" id="mealChips"></div>
       <div class="row end">
         <span class="status" id="logStatus"></span>
-        <button id="photoBtn" hidden title="Se souber o peso de algo, escreva no campo acima antes da foto">📷 Foto do prato</button>
         <button class="primary" id="addBtn">Adicionar</button>
       </div>
+      <div id="photoRow" hidden>
+        <div class="row end">
+          <button id="cameraBtn">📷 Tirar foto</button>
+          <button id="galleryBtn">🖼️ Foto ou print da galeria</button>
+        </div>
+        <p class="hint" style="margin:6px 0 0">Vale foto do prato, print do pedido do iFood ou da página do restaurante (pode escolher até 4 de uma vez). Se comeu só uma parte, escreva no campo acima antes, tipo “comi metade” ou “dividi com mais 1 pessoa”.</p>
+      </div>
       <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
+      <input type="file" id="galleryInput" accept="image/*" multiple hidden>
       <!-- revisão do que o Gemini viu na foto -->
       <div id="photoReview" class="view" style="gap:8px" hidden></div>
       <!-- quando um alimento não é reconhecido -->
