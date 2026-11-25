@@ -3,8 +3,30 @@
 import { GROUPS, listPrompt } from './alimentos.js';
 
 const LS = 'pc:geminiKey';
-// Se um modelo estiver lotado ou sem cota, tenta o próximo (a cota grátis é separada por modelo)
-const MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
+// Nomes de reserva, caso não dê para perguntar ao Google quais modelos a chave pode usar
+const RESERVA = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash'];
+const PREFERIDOS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
+let modelosCache = null;
+/* Pergunta ao Google (sem gastar cota) quais modelos "flash" esta chave pode usar e ordena:
+   primeiro os recomendados para a cota grátis, depois os mais novos; preview e 2.x por último. */
+async function modelos(key) {
+  if (modelosCache) return modelosCache;
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+    const j = await r.json();
+    const nomes = (j.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => m.name.replace(/^models\//, ''))
+      .filter(n => /^gemini-.*flash/.test(n) && !/image|tts|live|audio|embed|native|computer|robot|thinking-exp/.test(n));
+    if (!nomes.length) throw 0;
+    const ver = n => +(n.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || 0);
+    const nota = n => { const i = PREFERIDOS.indexOf(n); if (i >= 0) return 1000 - i;
+      return ver(n) * 10 - (/preview|exp/.test(n) ? 50 : 0) - (/-\d{3,}$|-\d{2}-\d{2}/.test(n) ? 5 : 0) + (/latest/.test(n) ? -1 : 0); };
+    modelosCache = [...new Set(nomes)].sort((x, y) => nota(y) - nota(x)).slice(0, 6);
+  } catch { modelosCache = RESERVA; }
+  return modelosCache;
+}
+export function modelosUsados() { return modelosCache || []; }
 const espera = ms => new Promise(r => setTimeout(r, ms));
 const URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
@@ -35,8 +57,8 @@ class GeminiErro extends Error { constructor(msg, code) { super(msg); this.code 
 async function perguntar(parts) {
   const key = getKey(); if (!key) throw new GeminiErro('Cole a chave do Gemini em Minha dieta → Leitura por foto.', 'sem_chave');
   const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } });
-  let lotado = false, semCota = false, ultimo = null;
-  for (const m of MODELS) {
+  let lotado = false, semCota = false, ultimo = null; const diag = [];
+  for (const m of await modelos(key)) {
     for (let tentativa = 0; tentativa < 2; tentativa++) {
       let r;
       try {
@@ -44,10 +66,10 @@ async function perguntar(parts) {
       } catch { throw new GeminiErro('Sem internet para falar com o Gemini agora.', 'rede'); }
       const j = await r.json().catch(() => ({}));
       const msg = j?.error?.message || '';
-      if (r.status === 404) { ultimo = msg; break; }                       // modelo não existe: próximo
-      if (r.status === 429) { semCota = true; break; }                     // cota deste modelo acabou: próximo
+      if (r.status === 404) { diag.push(m + ': não existe'); ultimo = msg; break; }                       // modelo não existe: próximo
+      if (r.status === 429) { diag.push(m + ': sem cota'); semCota = true; break; }                     // cota deste modelo acabou: próximo
       if (r.status >= 500 || /high demand|overloaded|unavailable/i.test(msg)) { // lotado: espera e tenta de novo, depois próximo
-        lotado = true; if (tentativa === 0) { await espera(2000); continue; } break;
+        lotado = true; if (tentativa === 1) diag.push(m + ': lotado (' + r.status + ')'); if (tentativa === 0) { await espera(2000); continue; } break;
       }
       if (!r.ok) {
         if (/API key|API_KEY/i.test(msg) || r.status === 403) throw new GeminiErro('A chave do Gemini não funcionou. Confira se copiou inteira.', 'chave');
@@ -64,9 +86,10 @@ async function perguntar(parts) {
       catch { const mm = txt.match(/\{[\s\S]*\}/); if (mm) { try { return JSON.parse(mm[0]); } catch {} } ultimo = 'json'; break; }
     }
   }
-  if (lotado) throw new GeminiErro('Os servidores do Gemini estão lotados agora (é do Google, não do app). Espere 1 ou 2 minutos e toque em Tentar de novo.', 'lotado');
-  if (semCota) throw new GeminiErro('Acabou a cota grátis do Gemini por agora. Tente daqui a pouco.', 'cota');
-  throw new GeminiErro(ultimo === 'json' || ultimo === 'vazio' ? 'A resposta do Gemini veio incompleta. Toque em Tentar de novo.' : 'Nenhum modelo do Gemini respondeu. Tente mais tarde.', 'erro');
+  const det = diag.length ? ' [' + diag.join('; ') + ']' : '';
+  if (lotado && !semCota) throw new GeminiErro('Os servidores do Gemini estão lotados agora (é do Google, não do app). Espere 1 ou 2 minutos e toque em Tentar de novo.' + det, 'lotado');
+  if (semCota) throw new GeminiErro('Os modelos do Gemini estão sem cota grátis ou lotados agora. Tente daqui a pouco.' + det, 'cota');
+  throw new GeminiErro(ultimo === 'json' || ultimo === 'vazio' ? 'A resposta do Gemini veio incompleta. Toque em Tentar de novo.' : 'Nenhum modelo do Gemini respondeu. Tente mais tarde.' + det, 'erro');
 }
 
 const FORMATO_ITENS = `Responda só JSON: {"items":[{"name":"Arroz polido cozido","group":"Arroz","grams":120,"kcal":160,"p":3,"c":34,"f":0.3}],"descricao":"arroz, feijão e frango grelhado"}
