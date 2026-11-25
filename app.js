@@ -4,7 +4,7 @@ import { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, ite
 import { firebaseConfig } from './firebase-config.js';
 import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta } from './gemini.js';
 
-const APP_VERSAO = 5;
+const APP_VERSAO = 6;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -298,7 +298,7 @@ async function photoChosen(fileList) {
     if (!items.length) { box.replaceChildren(img, el('p', { class: 'hint err' }, String(j?.observacao || 'Não identifiquei comida nessa foto. Tente de novo, com o prato inteiro ou o pedido aparecendo.')), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'))); return; }
     review = { meal, note, desc: String(j.descricao || items.map(i => i.name).join(', ')), obs: String(j.observacao || ''), img, items: items.map(i => ({ orig: i, cur: i })) };
     renderReview();
-  } catch (e) { box.replaceChildren(img, el('p', { class: 'status err' }, e.message), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'))); }
+  } catch (e) { box.replaceChildren(img, el('p', { class: 'status err' }, e.message), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'), el('button', { onclick: () => photoChosen(files) }, 'Tentar de novo'))); }
   finally { $('cameraBtn').disabled = $('galleryBtn').disabled = false; $('photoInput').value = ''; $('galleryInput').value = ''; }
 }
 function renderReview() {
@@ -336,7 +336,7 @@ async function dietPhotosChosen(files) {
     prev.replaceChildren(el('p', { class: 'hint' }, el('strong', {}, 'Confira a leitura:'), ` ${t.kcal} kcal e ~${t.p}g de proteína por dia. Se estiver certo, toque em `, el('strong', {}, 'Usar esta dieta'), '. Se algo vier errado, use a dieta e depois ajuste em Editar.'),
       ...diet.meals.map(m => el('div', { class: 'hint' }, el('strong', {}, m.name + (m.time ? ' · ' + m.time : '') + ': '), m.portions.map(p => GBY[p.group]?.free ? 'vegetais à vontade' : `${fmtN(p.n)} ${p.group}${p.text ? ' (' + p.text + ')' : ''}`).join(', '))));
     setStatus('dietStatus', '');
-  } catch (e) { prev.replaceChildren(el('p', { class: 'status err' }, e.message || 'Não consegui ler a dieta.')); }
+  } catch (e) { const fs = [...files]; prev.replaceChildren(el('p', { class: 'status err' }, e.message || 'Não consegui ler a dieta.'), el('div', { class: 'row end' }, el('button', { onclick: () => dietPhotosChosen(fs) }, 'Tentar de novo'))); }
   finally { btn.disabled = false; $('dietPhotoInput').value = ''; }
 }
 

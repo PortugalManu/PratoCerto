@@ -3,7 +3,9 @@
 import { GROUPS, listPrompt } from './alimentos.js';
 
 const LS = 'pc:geminiKey';
-const MODELS = ['gemini-flash-latest', 'gemini-2.5-flash'];
+// Se um modelo estiver lotado ou sem cota, tenta o próximo (a cota grátis é separada por modelo)
+const MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'];
+const espera = ms => new Promise(r => setTimeout(r, ms));
 const URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
 export function getKey() { try { return localStorage.getItem(LS) || ''; } catch { return ''; } }
@@ -32,29 +34,39 @@ class GeminiErro extends Error { constructor(msg, code) { super(msg); this.code 
 
 async function perguntar(parts) {
   const key = getKey(); if (!key) throw new GeminiErro('Cole a chave do Gemini em Minha dieta → Leitura por foto.', 'sem_chave');
-  let ultimo;
+  const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } });
+  let lotado = false, semCota = false, ultimo = null;
   for (const m of MODELS) {
-    let r;
-    try {
-      r = await fetch(URL_BASE + m + ':generateContent', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } }),
-      });
-    } catch { throw new GeminiErro('Sem internet para falar com o Gemini agora.', 'rede'); }
-    if (r.status === 404) { ultimo = new GeminiErro('Modelo do Gemini indisponível.', 'modelo'); continue; }
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      let r;
+      try {
+        r = await fetch(URL_BASE + m + ':generateContent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body });
+      } catch { throw new GeminiErro('Sem internet para falar com o Gemini agora.', 'rede'); }
+      const j = await r.json().catch(() => ({}));
       const msg = j?.error?.message || '';
-      if (r.status === 429) throw new GeminiErro('Acabou a cota grátis do Gemini por agora. Tente daqui a pouco.', 'cota');
-      if (/API key|API_KEY/i.test(msg) || r.status === 403) throw new GeminiErro('A chave do Gemini não funcionou. Confira se copiou inteira.', 'chave');
-      throw new GeminiErro('O Gemini recusou o pedido (' + (msg || r.status) + ').', 'erro');
+      if (r.status === 404) { ultimo = msg; break; }                       // modelo não existe: próximo
+      if (r.status === 429) { semCota = true; break; }                     // cota deste modelo acabou: próximo
+      if (r.status >= 500 || /high demand|overloaded|unavailable/i.test(msg)) { // lotado: espera e tenta de novo, depois próximo
+        lotado = true; if (tentativa === 0) { await espera(2000); continue; } break;
+      }
+      if (!r.ok) {
+        if (/API key|API_KEY/i.test(msg) || r.status === 403) throw new GeminiErro('A chave do Gemini não funcionou. Confira se copiou inteira.', 'chave');
+        if (/image|inline_data|mime/i.test(msg)) throw new GeminiErro('O Gemini não conseguiu abrir essa imagem. Tente outra foto ou um print.', 'imagem');
+        throw new GeminiErro('O Gemini recusou o pedido (' + (msg || r.status) + ').', 'erro');
+      }
+      const cand = j.candidates?.[0];
+      const txt = (cand?.content?.parts || []).map(p => p.text || '').join('');
+      if (!txt) {
+        if (j.promptFeedback?.blockReason || cand?.finishReason === 'SAFETY') throw new GeminiErro('O Gemini não quis analisar essa imagem. Tente outra.', 'bloqueio');
+        ultimo = 'vazio'; break;
+      }
+      try { return JSON.parse(txt.replace(/^```(?:json)?\s*|\s*```$/g, '')); }
+      catch { const mm = txt.match(/\{[\s\S]*\}/); if (mm) { try { return JSON.parse(mm[0]); } catch {} } ultimo = 'json'; break; }
     }
-    const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-    if (!txt) throw new GeminiErro('O Gemini não respondeu nada. Tente outra foto.', 'vazio');
-    try { return JSON.parse(txt.replace(/^```(?:json)?\s*|\s*```$/g, '')); }
-    catch { const mm = txt.match(/\{[\s\S]*\}/); if (mm) return JSON.parse(mm[0]); throw new GeminiErro('Resposta do Gemini veio quebrada. Tente de novo.', 'json'); }
   }
-  throw ultimo;
+  if (lotado) throw new GeminiErro('Os servidores do Gemini estão lotados agora (é do Google, não do app). Espere 1 ou 2 minutos e toque em Tentar de novo.', 'lotado');
+  if (semCota) throw new GeminiErro('Acabou a cota grátis do Gemini por agora. Tente daqui a pouco.', 'cota');
+  throw new GeminiErro(ultimo === 'json' || ultimo === 'vazio' ? 'A resposta do Gemini veio incompleta. Toque em Tentar de novo.' : 'Nenhum modelo do Gemini respondeu. Tente mais tarde.', 'erro');
 }
 
 const FORMATO_ITENS = `Responda só JSON: {"items":[{"name":"Arroz polido cozido","group":"Arroz","grams":120,"kcal":160,"p":3,"c":34,"f":0.3}],"descricao":"arroz, feijão e frango grelhado"}
