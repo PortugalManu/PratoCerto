@@ -1,6 +1,6 @@
 // Guarda o app no celular para abrir na hora, mesmo sem internet.
 // Sempre tenta a versão nova primeiro; sem internet, usa a guardada.
-const VERSAO = 'pratocerto-v7';
+const VERSAO = 'pratocerto-v8';
 const ARQUIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'alimentos.js', 'gemini.js', 'lista.js', 'firebase-config.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 const EXTERNOS = ['https://www.gstatic.com/firebasejs/', 'https://fonts.googleapis.com/', 'https://fonts.gstatic.com/'];

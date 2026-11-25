@@ -54,11 +54,36 @@ export async function prepararFoto(file, max = 1280) {
 
 class GeminiErro extends Error { constructor(msg, code) { super(msg); this.code = code; } }
 
+/* Versão leve do pedido: foto menor e lista resumida. Usada quando o Google diz que está lotado. */
+function listaCurta() {
+  return GROUPS.map(g => g.free ? `## ${g.name}: à vontade` : `## ${g.name} (1 porção = ${g.kcal} kcal): ` + g.items.slice(0, 12).map(i => `${i.name} ${i.g}g`).join('; ')).join('\n')
+    + '\n(Lista resumida: para alimentos fora dela, use o nome comum e o grupo mais parecido.)';
+}
+async function reduzir(part, max) {
+  if (!part.inline_data) return part;
+  const blob = await (await fetch('data:image/jpeg;base64,' + part.inline_data.data)).blob();
+  const bmp = await createImageBitmap(blob), s = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  return { inline_data: { mime_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.75).split(',')[1] } };
+}
 async function perguntar(parts) {
   const key = getKey(); if (!key) throw new GeminiErro('Cole a chave do Gemini em Minha dieta → Leitura por foto.', 'sem_chave');
+  const lista = await modelos(key);
+  try { return await perguntarUmaVez(parts, lista); }
+  catch (e) {
+    if (e.code !== 'lotado' && e.code !== 'cota') throw e;
+    // 2ª chance: pedido bem menor (lista resumida e foto menor), que os servidores aceitam melhor quando estão cheios
+    const leve = await Promise.all(parts.map(p => p.text ? { text: p.text.replace(listPrompt(), listaCurta()) } : reduzir(p, 900)));
+    try { return await perguntarUmaVez(leve, lista.slice(0, 3)); }
+    catch (e2) { throw e2.code === 'lotado' || e2.code === 'cota' ? e : e2; }
+  }
+}
+async function perguntarUmaVez(parts, lista) {
+  const key = getKey();
   const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } });
   let lotado = false, semCota = false, ultimo = null; const diag = [];
-  for (const m of await modelos(key)) {
+  for (const m of lista) {
     for (let tentativa = 0; tentativa < 2; tentativa++) {
       let r;
       try {
