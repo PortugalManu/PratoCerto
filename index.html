@@ -60,9 +60,12 @@
         </div>
         <p class="hint" style="margin:6px 0 0">Vale foto do prato, print do pedido do iFood ou da página do restaurante (pode escolher até 4 de uma vez). Se comeu só uma parte, escreva no campo acima antes, tipo “comi metade” ou “dividi com mais 1 pessoa”.</p>
       </div>
-      <div class="row end" style="margin-top:6px">
-        <button id="labelBtn" title="Foto da tabela de informação nutricional da embalagem">🏷️ Foto do rótulo</button>
+      <div class="row end" style="margin-top:6px;flex-wrap:wrap">
+        <span class="hint">🏷️ Rótulo da embalagem:</span>
+        <button id="labelCamBtn">📷 Tirar foto</button>
+        <button id="labelBtn">🖼️ Galeria</button>
       </div>
+      <input type="file" id="labelCamInput" accept="image/*" capture="environment" hidden>
       <input type="file" id="labelInput" accept="image/*" hidden>
       <!-- tabela nutricional lida do rótulo -->
       <div id="labelBox" class="view" style="gap:8px" hidden>

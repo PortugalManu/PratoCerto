@@ -140,6 +140,9 @@ ${observacao ? `6. A pessoa escreveu: "${observacao}". Isso manda: se informar p
 ${gruposDaRefeicao.length ? `A dieta desta refeição usa os grupos: ${gruposDaRefeicao.join(', ')}. Em caso de dúvida entre grupos, prefira esses.` : ''}
 Use "nota" curta por item quando o peso vier do pedido ou for um palpite importante (ex.: "500g do pedido", "palpite: porção de restaurante").
 Use "observacao" (uma frase) para avisar algo útil para a pessoa (ex.: "Pedido de 2 pessoas: calculei a metade."); senão "".
+Se a imagem for a TABELA DE INFORMAÇÃO NUTRICIONAL (rótulo) de uma embalagem, NÃO adivinhe o alimento: responda
+{"rotulo":{"nome":"nome do produto se aparecer, senão \"\"","porcao":56,"per100":{"kcal":192,"p":16,"c":0.5,"f":14}},"items":[]}
+com "porcao" em gramas e "per100" por 100 g (p proteínas, c carboidratos, f gorduras totais).
 Se as imagens não forem de comida, responda {"items":[],"descricao":"","observacao":"Não encontrei comida nas imagens."}
 
 ${FORMATO_ITENS}

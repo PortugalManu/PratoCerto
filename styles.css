@@ -125,3 +125,5 @@ select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(-
 .por-row .d{min-width:0;overflow-wrap:anywhere;line-height:1.35}
 .por-row .pc{flex:none}
 #appVer{display:inline-block;margin-top:6px;opacity:.8}
+.rev input.nm{width:100%;padding:5px 8px;font:inherit;margin-bottom:3px}
+.link-name{all:unset;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}

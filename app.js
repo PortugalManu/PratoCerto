@@ -5,7 +5,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta, lerRotulo } from './gemini.js';
 import { lerTextoDaFoto, entenderRotulo } from './rotulo.js';
 
-const APP_VERSAO = 10;
+const APP_VERSAO = 11;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -135,7 +135,7 @@ function portionChips(meal, entries) {
 }
 function itemRow(i, est) {
   return el('div', { class: 'item' },
-    el('span', { class: 'n' }, `${i.name} · ${i.grams}g `, i.portions ? el('span', { class: 'tag' }, `${fmtN(i.portions)} ${i.group}`) : null, ' ', i.group === 'Fora da lista' ? el('span', { class: 'tag out' }, 'fora da lista') : null, ' ', est ? el('span', { class: 'tag est' }, 'estimado') : null),
+    el('span', { class: 'n' }, el('button', { class: 'link-name', title: 'Toque para trocar o nome', onclick: async () => { const v = prompt('Nome do alimento:', i.name); if (v && v.trim()) { i.name = v.trim(); await saveDay(); renderMeals(); } } }, i.name), ` · ${i.grams}g `, i.portions ? el('span', { class: 'tag' }, `${fmtN(i.portions)} ${i.group}`) : null, ' ', i.group === 'Fora da lista' ? el('span', { class: 'tag out' }, 'fora da lista') : null, ' ', est ? el('span', { class: 'tag est' }, 'estimado') : null),
     el('span', { class: 'm' }, `${r0(i.kcal)} kcal · P ${r1(i.p)}g`));
 }
 function renderMeals() {
@@ -288,6 +288,7 @@ function cleanAiItem0(i) {
 }
 function rescale(orig, grams) { // mudar o peso de um item já calculado
   const k = orig.grams ? grams / orig.grams : 1;
+  if (orig.fixo) return { ...orig, grams: r0(grams), portions: r2(orig.portions * k), kcal: r0(orig.kcal * k), p: r1(orig.p * k), c: r1(orig.c * k), f: r1(orig.f * k) };
   if (orig.portions) return { ...cleanAiItem({ ...orig, grams, kcal: orig.kcal * k, p: orig.p * k, c: orig.c * k, f: orig.f * k }), nota: orig.nota };
   return { ...orig, grams: r0(grams), kcal: r0(orig.kcal * k), p: r1(orig.p * k), c: r1(orig.c * k), f: r1(orig.f * k) };
 }
@@ -305,6 +306,8 @@ async function photoChosen(fileList) {
   try {
     const fotos = await Promise.all(files.map(f => prepararFoto(f, 1600)));
     const j = await lerPrato(fotos, note, mealGroups(meal));
+    const rot = rotuloDoGemini(j?.rotulo);
+    if (rot) { closeReview(); rotulo = { meal }; fillLabel(rot, String(j.rotulo.nome || '')); return; }
     const items = (j?.items || []).map(i => ({ ...cleanAiItem(i), nota: i.nota ? String(i.nota) : '' })).filter(i => i.grams || i.kcal);
     if (!items.length) { box.replaceChildren(img, el('p', { class: 'hint err' }, String(j?.observacao || 'Não identifiquei comida nessa foto. Tente de novo, com o prato inteiro ou o pedido aparecendo.')), el('div', { class: 'row end' }, el('button', { class: 'ghost', onclick: closeReview }, 'Fechar'))); return; }
     review = { meal, note, desc: String(j.descricao || items.map(i => i.name).join(', ')), obs: String(j.observacao || ''), img, items: items.map(i => ({ orig: i, cur: i })) };
@@ -319,7 +322,7 @@ function renderReview() {
     el('p', { class: 'hint' }, 'Confira o que o Gemini viu e corrija os pesos se precisar. ', el('strong', {}, 'Refeição: ' + r.meal)),
     r.obs ? el('p', { class: 'hint' }, '💬 ' + r.obs) : null,
     ...r.items.map((x, idx) => el('div', { class: 'rev' },
-      el('span', { class: 'n' }, x.cur.name, x.cur.portions ? ' ' : '', x.cur.portions ? el('span', { class: 'tag' }, `${fmtN(x.cur.portions)} ${x.cur.group}`) : x.cur.group === 'Fora da lista' ? el('span', { class: 'tag out' }, ' fora da lista') : null),
+      el('span', { class: 'n' }, el('input', { type: 'text', class: 'nm', value: x.cur.name, 'aria-label': 'Nome do alimento', onchange: e => { const v = e.target.value.trim(); if (v) { x.cur = { ...x.cur, name: v }; x.orig = { ...x.orig, name: v, fixo: true }; } } }), x.cur.portions ? ' ' : '', x.cur.portions ? el('span', { class: 'tag' }, `${fmtN(x.cur.portions)} ${x.cur.group}`) : x.cur.group === 'Fora da lista' ? el('span', { class: 'tag out' }, ' fora da lista') : null),
       el('input', { type: 'number', inputmode: 'decimal', value: x.cur.grams, 'aria-label': 'Gramas de ' + x.cur.name, onchange: e => { x.cur = rescale(x.orig, Math.max(0, +e.target.value || 0)); renderReview(); } }),
       el('button', { class: 'ghost icon', 'aria-label': 'Tirar ' + x.cur.name, onclick: () => { r.items.splice(idx, 1); renderReview(); } }, '✕'),
       el('span', { class: 'm' }, `${x.cur.grams}g · ${r0(x.cur.kcal)} kcal · P ${r1(x.cur.p)}g`, x.orig.nota ? ' · ' + x.orig.nota : ''))),
@@ -357,7 +360,7 @@ const lbIds = ['lbPorcao', 'lbKcal', 'lbP', 'lbC', 'lbF', 'lbComi'];
 async function labelChosen(file) {
   if (!file) return;
   rotulo = { meal: selMeal || guessMeal() };
-  $('labelBox').hidden = false; $('labelForm').hidden = true; $('labelBtn').disabled = true;
+  $('labelBox').hidden = false; $('labelForm').hidden = true; closeReview(); $('labelBtn').disabled = $('labelCamBtn').disabled = true;
   const msg = t => $('labelMsg').replaceChildren(t);
   let r = null, nome = '';
   try {
@@ -365,19 +368,26 @@ async function labelChosen(file) {
       msg('O Gemini está lendo o rótulo…');
       try {
         const j = await lerRotulo(await prepararFoto(file, 1600));
-        if (j && j.per100 && +j.per100.kcal) {
-          const porcao = +j.porcao || null, v = [+j.per100.kcal, +j.per100.p || 0, +j.per100.c || 0, +j.per100.f || 0];
-          r = { porcao, per100: v, porPorcao: porcao ? v.map(x => Math.round(x * porcao) / 100) : null, achados: 4 };
-          nome = String(j.nome || '');
-        }
+        r = rotuloDoGemini(j); if (r) nome = String(j.nome || '');
       } catch (e) { console.warn('Gemini não leu o rótulo:', e.message); }
     }
     if (!r) { // sem Gemini (ou ele lotado): o celular lê o texto sozinho
       const texto = await lerTextoDaFoto(file, msg);
       r = entenderRotulo(texto);
     }
-  } catch (e) { msg(el('span', { class: 'status err' }, e.message || 'Não consegui ler o rótulo.')); $('labelBtn').disabled = false; $('labelInput').value = ''; return; }
-  $('labelBtn').disabled = false; $('labelInput').value = '';
+  } catch (e) { msg(el('span', { class: 'status err' }, e.message || 'Não consegui ler o rótulo.')); labelReset(); return; }
+  labelReset();
+  fillLabel(r, nome);
+}
+function labelReset() { $('labelBtn').disabled = $('labelCamBtn').disabled = false; $('labelInput').value = ''; $('labelCamInput').value = ''; }
+function rotuloDoGemini(j) {
+  if (!j || !j.per100 || !+j.per100.kcal) return null;
+  const porcao = +j.porcao || null, v = [+j.per100.kcal, +j.per100.p || 0, +j.per100.c || 0, +j.per100.f || 0];
+  return { porcao, per100: v, porPorcao: porcao ? v.map(x => Math.round(x * porcao / 10) / 10) : null, achados: 4 };
+}
+function fillLabel(r, nome) {
+  const msg = t => $('labelMsg').replaceChildren(t);
+  $('labelBox').hidden = false;
   const pp = r.porPorcao || (r.per100 && [r.per100[0], r.per100[1], r.per100[2], r.per100[3]]) || [];
   const porcao = r.porcao || (r.porPorcao ? null : (r.per100 ? 100 : null));
   $('lbName').value = nome;
@@ -419,7 +429,9 @@ function renderProdutos() {
     el('button', { class: 'ghost icon', 'aria-label': 'Apagar ' + p.name, onclick: async () => { profile.produtos = lista.filter((_, j) => j !== i); await save('profile', profile); setMeusProdutos(profile.produtos); renderProdutos(); } }, '✕'))));
 }
 $('labelBtn').onclick = () => $('labelInput').click();
+$('labelCamBtn').onclick = () => $('labelCamInput').click();
 $('labelInput').addEventListener('change', e => labelChosen(e.target.files[0]));
+$('labelCamInput').addEventListener('change', e => labelChosen(e.target.files[0]));
 $('lbCancel').onclick = closeLabel;
 $('lbAdd').onclick = labelAdd;
 
