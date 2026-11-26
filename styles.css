@@ -119,3 +119,9 @@ select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(-
 .preview-img{max-height:160px;border-radius:10px;object-fit:cover;align-self:flex-start}
 .thumbs{display:flex;gap:6px;overflow-x:auto}
 .thumbs .preview-img{max-height:140px;max-width:70%;flex:none}
+.por-list{display:flex;flex-direction:column}
+.por-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.por-row:first-child{border-top:0}
+.por-row .d{min-width:0;overflow-wrap:anywhere;line-height:1.35}
+.por-row .pc{flex:none}
+#appVer{display:inline-block;margin-top:6px;opacity:.8}

@@ -5,7 +5,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta, lerRotulo } from './gemini.js';
 import { lerTextoDaFoto, entenderRotulo } from './rotulo.js';
 
-const APP_VERSAO = 9;
+const APP_VERSAO = 10;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -114,14 +114,24 @@ function pickSug(m) { sugMeal = m; renderChips('sugMealChips', sugMeal, pickSug)
 
 function portionChips(meal, entries) {
   const eaten = {}; for (const e of entries) for (const i of e.items) if (i.portions) eaten[i.group] = (eaten[i.group] || 0) + i.portions;
-  const chips = [];
-  for (const { group, n } of meal?.portions || []) {
-    if (GBY[group]?.free) { chips.push(el('span', { class: 'pc free' }, 'Vegetais crus · à vontade')); continue; }
-    const e = eaten[group] || 0; delete eaten[group];
-    chips.push(el('span', { class: 'pc' + (e > n * 1.15 ? ' over' : e >= n * 0.9 ? ' done' : '') }, `${group} ${fmtN(e)}/${fmtN(n)}`));
+  // junta o mesmo grupo (ex.: queijo e leite são os dois "Leite") e mostra o que a dieta escreveu
+  const grupos = [];
+  for (const { group, n, text } of meal?.portions || []) {
+    let g = grupos.find(x => x.group === group);
+    if (!g) grupos.push(g = { group, n: 0, texts: [] });
+    g.n += +n || 0; if (text) g.texts.push(text);
   }
-  for (const g in eaten) chips.push(el('span', { class: 'pc over' }, `${g} ${fmtN(eaten[g])} (fora)`));
-  return el('div', { class: 'por' }, chips);
+  const rows = grupos.map(({ group, n, texts }) => {
+    const free = GBY[group]?.free;
+    const desc = free ? 'Vegetais crus ou cozidos' + (texts.length ? ' (' + texts.join('; ').replace(/^à vontade,?\s*/i, '') + ')' : '').replace(' ()', '')
+      : texts.length ? texts.join(' + ') : `${fmtN(n)} ${n === 1 ? 'porção' : 'porções'} de ${group}`;
+    if (free) return el('div', { class: 'por-row' }, el('span', { class: 'd' }, desc), el('span', { class: 'pc free' }, 'à vontade'));
+    const e = eaten[group] || 0; delete eaten[group];
+    return el('div', { class: 'por-row' }, el('span', { class: 'd' }, desc),
+      el('span', { class: 'pc' + (e > n * 1.15 ? ' over' : e >= n * 0.9 ? ' done' : '') }, `${group} ${fmtN(e)}/${fmtN(n)}`));
+  });
+  for (const g in eaten) rows.push(el('div', { class: 'por-row' }, el('span', { class: 'd' }, 'Fora do plano desta refeição'), el('span', { class: 'pc over' }, `${g} ${fmtN(eaten[g])}`)));
+  return el('div', { class: 'por-list' }, rows);
 }
 function itemRow(i, est) {
   return el('div', { class: 'item' },
@@ -636,3 +646,4 @@ renderAll(); renderList(); refreshGemini();
 loadDay();
 initFirebase();
 console.info('Prato Certo versão', APP_VERSAO);
+$('appVer').textContent = 'Versão ' + APP_VERSAO;
