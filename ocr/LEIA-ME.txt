@@ -1,0 +1,2 @@
+Leitor de texto de foto (Tesseract.js 5.1.1, licença Apache-2.0) e dados do português (tessdata best_int).
+Ficam aqui dentro do app para funcionar sem depender de outros sites. Usado só pela "Foto do rótulo".

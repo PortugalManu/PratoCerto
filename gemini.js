@@ -180,3 +180,14 @@ Responda só JSON:
 LISTA DE SUBSTITUIÇÃO:
 ${listPrompt()}` }]);
 }
+
+/* Foto do rótulo (tabela nutricional) → valores por 100 g */
+export function lerRotulo(foto) {
+  return perguntar([foto, { text:
+`Leia a tabela de informação nutricional desta foto de rótulo brasileiro.
+Responda só JSON: {"nome":"nome do produto se aparecer, senão \\"\\"","porcao":30,"per100":{"kcal":380,"p":8.5,"c":70,"f":7}}
+- "porcao": tamanho da porção em gramas (ou ml). null se não aparecer.
+- "per100": valores por 100 g (ou 100 ml). Se a tabela só tiver valores por porção, converta para 100 g.
+- "p" proteínas, "c" carboidratos totais, "f" gorduras totais, em gramas. Ignore %VD.
+- Se não for uma tabela nutricional, responda {"erro":"não é rótulo"}.` }]);
+}

@@ -111,6 +111,9 @@ const ALL=GROUPS.flatMap(g=>g.items);
 function itemByName(n){const k=norm(n);return ALL.find(i=>i.full===k)||ALL.find(i=>i.key===k)}
 const PREF_IDX=PREF.flatMap(([als,name,taco])=>{const it=itemByName(name);if(!it)console.warn("lista sem",name);return it?als.map(a=>({a:norm(a),it,taco})):[]});
 const EXTRA_IDX=EXTRA.flatMap(([als,name,taco,unit])=>als.map(a=>({a:norm(a),ex:{name,taco,unit}})));
+/* Produtos que a pessoa salvou pelo rótulo: [{name, per100:[kcal,p,c,f], porcao}] */
+let MEUS_IDX=[];
+function setMeusProdutos(lista){MEUS_IDX=(lista||[]).filter(x=>x&&x.name&&x.per100).map(x=>({a:norm(x.name),ex:{name:x.name,taco:x.per100,unit:+x.porcao||0}}))}
 const COMMON=new Set(PREF.map(p=>p[1]));
 function hasWord(t,a){return new RegExp("(^|[^a-z0-9])"+a.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^a-z0-9]|$)").test(t)}
 function longest(list,t){let best=null;for(const x of list)if(hasWord(t,x.a)&&(!best||x.a.length>best.a.length))best=x;return best}
@@ -122,7 +125,7 @@ function matchFood(t,preferGroups){
   // nome completo da lista (ex.: "iogurte grego lacfree")
   let best=null;
   for(const it of ALL){if(it.key.length>=4&&hasWord(t,it.key)&&(!best||it.key.length>best.key.length||(it.key.length===best.key.length&&preferGroups?.includes(it.group))))best=it}
-  const p=longest(PREF_IDX,t),e=longest(EXTRA_IDX,t);
+  const p=longest(PREF_IDX,t),e=longest([...MEUS_IDX,...EXTRA_IDX],t);
   const cands=[p&&{kind:"list",it:p.it,taco:p.taco,len:p.a.length},best&&{kind:"list",it:best,len:best.key.length,taco:PREF_IDX.find(x=>x.it===best)?.taco},e&&{kind:"extra",ex:e.ex,len:e.a.length}].filter(Boolean);
   const fv=FREE_VEG.find(a=>hasWord(t,a));
   if(fv)cands.push({kind:"free",name:fv,len:fv.length});
@@ -186,6 +189,7 @@ function parseSegment(seg,preferGroups){
     if(unit&&unit[1]==="PORCAO"&&it)grams=(qty||1)*it.g;
     else if(unit&&it&&!/^[A-Z]/.test(unit[1])&&meas.includes(unit[1]))grams=(qty||1)*it.g/it.qty;
     else if(unit&&it&&spoonType(unit[1])&&spoonType(meas))grams=(qty||1)*it.g/it.qty*SPOON_R[spoonType(unit[1])]/SPOON_R[spoonType(meas)];
+    else if(m.kind==="extra"&&m.ex.unit&&(!unit||/PORCAO|unid|fatia|POTE|SCOOP|ped/.test(unit[1])))grams=(qty||1)*m.ex.unit;
     else if(unit&&unit[2])grams=(qty||1)*unit[2];
     else if(!unit&&qty&&it&&COUNTABLE.test(meas))grams=qty*it.g/it.qty;
     else if(!unit&&qty&&m.kind==="extra"&&m.ex.unit)grams=qty*m.ex.unit;
@@ -208,4 +212,4 @@ function localParse(text,preferGroups){
 let LIST_PROMPT = null;
 function listPrompt() { return LIST_PROMPT ??= GROUPS.map(g => g.free ? `## ${g.name}: à vontade, 0 kcal` : `## ${g.name} (1 porção = ${g.kcal} kcal)\n` + g.items.map(i => `${i.name}: ${String(i.qty).replace('.', ',')} ${i.measure} = ${i.g}g`).join('\n')).join('\n\n'); }
 
-export { listPrompt, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, matchFood, toItem, localParse };
+export { setMeusProdutos, listPrompt, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, matchFood, toItem, localParse };

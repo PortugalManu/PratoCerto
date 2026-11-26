@@ -1,10 +1,11 @@
 /* Prato Certo — app do celular (PWA).
  * Registros e dieta ficam no Firebase (sua conta Google) e, como cópia, no próprio celular. */
-import { GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
+import { setMeusProdutos, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
 import { firebaseConfig } from './firebase-config.js';
-import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta } from './gemini.js';
+import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta, lerRotulo } from './gemini.js';
+import { lerTextoDaFoto, entenderRotulo } from './rotulo.js';
 
-const APP_VERSAO = 8;
+const APP_VERSAO = 9;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -232,7 +233,7 @@ function renderList() {
   if (!hits.length) { box.append(el('p', { class: 'empty' }, 'Não está na lista.')); return; }
   for (const it of hits) box.append(el('div', { class: 'sub' }, el('span', { class: 'n' }, it.name, el('span', { class: 'hint' }, ` · ${it.group} (${GBY[it.group].kcal} kcal)`)), el('span', {}, `${fmtN(it.qty)} ${it.measure} · ${it.g}g`)));
 }
-function renderAll() { renderDate(); renderSummary(); renderChips('mealChips', selMeal, pickMeal); renderMeals(); renderDiet(); renderTargets(); renderChips('sugMealChips', sugMeal, pickSug); }
+function renderAll() { setMeusProdutos(profile.produtos); renderProdutos(); renderDate(); renderSummary(); renderChips('mealChips', selMeal, pickMeal); renderMeals(); renderDiet(); renderTargets(); renderChips('sugMealChips', sugMeal, pickSug); }
 
 /* ===== Registrar ===== */
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -339,6 +340,78 @@ async function dietPhotosChosen(files) {
   } catch (e) { const fs = [...files]; prev.replaceChildren(el('p', { class: 'status err' }, e.message || 'Não consegui ler a dieta.'), el('div', { class: 'row end' }, el('button', { onclick: () => dietPhotosChosen(fs) }, 'Tentar de novo'))); }
   finally { btn.disabled = false; $('dietPhotoInput').value = ''; }
 }
+
+/* ===== Foto do rótulo (tabela nutricional) ===== */
+let rotulo = null; // {meal, note}
+const lbIds = ['lbPorcao', 'lbKcal', 'lbP', 'lbC', 'lbF', 'lbComi'];
+async function labelChosen(file) {
+  if (!file) return;
+  rotulo = { meal: selMeal || guessMeal() };
+  $('labelBox').hidden = false; $('labelForm').hidden = true; $('labelBtn').disabled = true;
+  const msg = t => $('labelMsg').replaceChildren(t);
+  let r = null, nome = '';
+  try {
+    if (getKey()) { // com a chave, tenta primeiro o Gemini (mais preciso)
+      msg('O Gemini está lendo o rótulo…');
+      try {
+        const j = await lerRotulo(await prepararFoto(file, 1600));
+        if (j && j.per100 && +j.per100.kcal) {
+          const porcao = +j.porcao || null, v = [+j.per100.kcal, +j.per100.p || 0, +j.per100.c || 0, +j.per100.f || 0];
+          r = { porcao, per100: v, porPorcao: porcao ? v.map(x => Math.round(x * porcao) / 100) : null, achados: 4 };
+          nome = String(j.nome || '');
+        }
+      } catch (e) { console.warn('Gemini não leu o rótulo:', e.message); }
+    }
+    if (!r) { // sem Gemini (ou ele lotado): o celular lê o texto sozinho
+      const texto = await lerTextoDaFoto(file, msg);
+      r = entenderRotulo(texto);
+    }
+  } catch (e) { msg(el('span', { class: 'status err' }, e.message || 'Não consegui ler o rótulo.')); $('labelBtn').disabled = false; $('labelInput').value = ''; return; }
+  $('labelBtn').disabled = false; $('labelInput').value = '';
+  const pp = r.porPorcao || (r.per100 && [r.per100[0], r.per100[1], r.per100[2], r.per100[3]]) || [];
+  const porcao = r.porcao || (r.porPorcao ? null : (r.per100 ? 100 : null));
+  $('lbName').value = nome;
+  $('lbPorcao').value = porcao ?? ''; $('lbKcal').value = pp[0] ?? ''; $('lbP').value = pp[1] ?? ''; $('lbC').value = pp[2] ?? ''; $('lbF').value = pp[3] ?? '';
+  $('lbComi').value = porcao ?? '';
+  msg(r.achados >= 3 ? el('span', {}, 'Confira os números com o rótulo e diga quanto você comeu. ', el('strong', {}, 'Refeição: ' + rotulo.meal))
+    : el('span', { class: 'status err' }, 'Não consegui ler tudo (foto tremida ou com reflexo?). Complete os números olhando o rótulo, ou tente outra foto mais de perto.'));
+  $('labelForm').hidden = false; lbTotal();
+  if (!nome) $('lbName').focus();
+}
+function lbVals() { const [porcao, k, p, c, f, comi] = lbIds.map(id => +String($(id).value).replace(',', '.') || 0); return { porcao, k, p, c, f, comi }; }
+function lbTotal() {
+  const v = lbVals(), x = v.porcao ? v.comi / v.porcao : 0;
+  $('lbTotal').textContent = v.porcao && v.comi ? `Você comeu: ${r0(v.k * x)} kcal · P ${r1(v.p * x)}g · C ${r1(v.c * x)}g · G ${r1(v.f * x)}g` : 'Preencha a porção e quanto você comeu.';
+}
+lbIds.forEach(id => $(id).addEventListener('input', lbTotal));
+function closeLabel() { rotulo = null; $('labelBox').hidden = true; }
+async function labelAdd() {
+  const v = lbVals(), name = $('lbName').value.trim() || 'Produto do rótulo';
+  if (!v.porcao || !v.k || !v.comi) { $('labelMsg').replaceChildren(el('span', { class: 'status err' }, 'Preencha porção, kcal e quanto você comeu.')); return; }
+  const x = v.comi / v.porcao;
+  const item = { name, grams: r0(v.comi), group: 'Fora da lista', portions: 0, kcal: r0(v.k * x), p: r1(v.p * x), c: r1(v.c * x), f: r1(v.f * x) };
+  if ($('lbSalvar').checked) {
+    const per100 = [v.k, v.p, v.c, v.f].map(n => r1(n / v.porcao * 100));
+    const lista = (profile.produtos || []).filter(p => norm(p.name) !== norm(name));
+    profile.produtos = [...lista, { name, per100, porcao: v.porcao }];
+    await save('profile', profile); setMeusProdutos(profile.produtos); renderProdutos();
+  }
+  const meal = rotulo?.meal || selMeal || guessMeal();
+  closeLabel();
+  await commitEntry('🏷️ ' + r0(v.comi) + 'g de ' + name, meal, [item], false);
+}
+function renderProdutos() {
+  const box = $('produtosList'), lista = profile.produtos || [];
+  if (!lista.length) { box.replaceChildren(el('p', { class: 'empty' }, 'Nenhum produto salvo ainda. Use “🏷️ Foto do rótulo” na aba Hoje.')); return; }
+  box.replaceChildren(...lista.map((p, i) => el('div', { class: 'rev' },
+    el('span', { class: 'n' }, p.name),
+    el('span', { class: 'm', style: 'grid-column:auto' }, `porção ${p.porcao}g · ${r0(p.per100[0] * p.porcao / 100)} kcal`),
+    el('button', { class: 'ghost icon', 'aria-label': 'Apagar ' + p.name, onclick: async () => { profile.produtos = lista.filter((_, j) => j !== i); await save('profile', profile); setMeusProdutos(profile.produtos); renderProdutos(); } }, '✕'))));
+}
+$('labelBtn').onclick = () => $('labelInput').click();
+$('labelInput').addEventListener('change', e => labelChosen(e.target.files[0]));
+$('lbCancel').onclick = closeLabel;
+$('lbAdd').onclick = labelAdd;
 
 /* ===== Chave do Gemini ===== */
 function refreshGemini() {

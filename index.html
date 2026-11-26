@@ -60,6 +60,29 @@
         </div>
         <p class="hint" style="margin:6px 0 0">Vale foto do prato, print do pedido do iFood ou da página do restaurante (pode escolher até 4 de uma vez). Se comeu só uma parte, escreva no campo acima antes, tipo “comi metade” ou “dividi com mais 1 pessoa”.</p>
       </div>
+      <div class="row end" style="margin-top:6px">
+        <button id="labelBtn" title="Foto da tabela de informação nutricional da embalagem">🏷️ Foto do rótulo</button>
+      </div>
+      <input type="file" id="labelInput" accept="image/*" hidden>
+      <!-- tabela nutricional lida do rótulo -->
+      <div id="labelBox" class="view" style="gap:8px" hidden>
+        <p class="hint" id="labelMsg"></p>
+        <div id="labelForm" hidden>
+          <label class="hint" style="display:flex;flex-direction:column;gap:3px">Produto<input type="text" id="lbName" placeholder="Ex.: Granola Mãe Terra"></label>
+          <p class="hint" style="margin:8px 0 4px">Valores de <strong>1 porção</strong> (confira com o rótulo):</p>
+          <div class="manual">
+            <label>Porção (g)<input type="number" id="lbPorcao" inputmode="decimal"></label>
+            <label>Kcal<input type="number" id="lbKcal" inputmode="decimal"></label>
+            <label>Proteína (g)<input type="number" id="lbP" inputmode="decimal"></label>
+            <label>Carbo (g)<input type="number" id="lbC" inputmode="decimal"></label>
+            <label>Gordura (g)<input type="number" id="lbF" inputmode="decimal"></label>
+            <label>Você comeu (g)<input type="number" id="lbComi" inputmode="decimal"></label>
+          </div>
+          <p class="nums" id="lbTotal"></p>
+          <label class="hint"><input type="checkbox" id="lbSalvar" checked> Salvar em Meus produtos (depois é só escrever “30g de” + o nome)</label>
+          <div class="row end"><button class="ghost" id="lbCancel">Cancelar</button><button class="primary" id="lbAdd">Adicionar</button></div>
+        </div>
+      </div>
       <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
       <input type="file" id="galleryInput" accept="image/*" multiple hidden>
       <!-- revisão do que o Gemini viu na foto -->
@@ -113,6 +136,12 @@
       </ol>
       <input type="password" id="geminiKey" placeholder="Cole a chave aqui (começa com AIza…)" autocomplete="off">
       <div class="row end"><span class="status" id="geminiStatus"></span><button class="ghost" id="geminiRemove">Remover</button><button id="geminiSave">Salvar chave</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Meus produtos</h2>
+      <p class="hint">Produtos salvos pela foto do rótulo. Escreva, por exemplo, “30g de granola” ou “1 porção de granola” que o app usa os valores do rótulo.</p>
+      <div id="produtosList" class="subs"></div>
     </div>
 
     <div class="card">

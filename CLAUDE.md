@@ -5,6 +5,7 @@ App do celular (PWA) publicado no GitHub Pages: diário alimentar que conta **po
 - `index.html`, `styles.css`, `app.js`: telas e regras do app.
 - `alimentos.js`: reconhece o que a pessoa escreve ("30g de arroz", "2 ovos", "macarrão com carne tudo 140g") e converte em porções. `PREF` liga palavras do dia a dia a itens da lista e tem os macros TACO por 100 g.
 - `gemini.js`: leitura de foto do prato (câmera ou galeria, inclusive print de pedido do iFood), foto da dieta e frases não reconhecidas, com a chave grátis do Gemini que a pessoa cola no app (fica só no localStorage do celular; nunca commitar chave).
+- `rotulo.js` + `ocr/`: foto do rótulo (tabela nutricional). Tenta o Gemini; sem ele, lê o texto no próprio celular (Tesseract.js guardado em `ocr/`) e confere a coluna de 100 g com a da porção. Produtos salvos ficam em `profile.produtos` e entram no reconhecimento de texto (`setMeusProdutos`).
 - `lista.js`: a lista de substituição (não muda). Cada item = 1 porção do grupo.
 - `firebase-config.js`, `firestore.rules`: login Google + Firestore (`users/{uid}/data/profile`, `users/{uid}/days/AAAA-MM-DD`).
 - `sw.js`: offline. **Ao mudar qualquer arquivo do app, suba `VERSAO` em `sw.js` e `APP_VERSAO` em `app.js`.**
