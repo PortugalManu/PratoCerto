@@ -113,7 +113,19 @@ const PREF_IDX=PREF.flatMap(([als,name,taco])=>{const it=itemByName(name);if(!it
 const EXTRA_IDX=EXTRA.flatMap(([als,name,taco,unit])=>als.map(a=>({a:norm(a),ex:{name,taco,unit}})));
 /* Produtos que a pessoa salvou pelo rótulo: [{name, per100:[kcal,p,c,f], porcao}] */
 let MEUS_IDX=[];
-function setMeusProdutos(lista){MEUS_IDX=(lista||[]).filter(x=>x&&x.name&&x.per100).map(x=>({a:norm(x.name),ex:{name:x.name,taco:x.per100,unit:+x.porcao||0}}))}
+const limpaNome=n=>norm(n).replace(/[.,;:!]+$/,"").trim();
+function setMeusProdutos(lista){MEUS_IDX=(lista||[]).filter(x=>x&&x.name&&x.per100).map(x=>({a:limpaNome(x.name),ex:{name:String(x.name).replace(/[.,;:!]+$/,"").trim(),taco:x.per100,unit:+x.porcao||0,group:GBY[x.group]&&!GBY[x.group].free?x.group:null}}))}
+/* Sugere em que grupo da lista um produto do rótulo se encaixa (a pessoa pode trocar) */
+function grupoSugerido(nome,per100){
+  const t=norm(nome||""),[k,p,c,f]=(per100||[]).map(v=>+v||0);
+  if(/\b(queijo|requeijao|iogurte|leite|coalhada|ricota|cottage|kefir)\b/.test(t))return "Leite";
+  if(/\b(pao|paes|torrada|bisnaguinha|wrap|tortilha|biscoito|bolacha|cream cracker|granola|aveia|cereal|cuscuz|tapioca)\b/.test(t))return "Pão";
+  if(/\b(castanha|amendoim|nozes|amendoa|pasta de amendoim|mix de nuts)\b/.test(t))return "Castanha";
+  if(/\b(fruta|banana|maca|uva passa|banana passa)\b/.test(t))return "Fruta";
+  if(/\b(hamburguer|frango|carne|peito|file|atum|sardinha|ovo|ovos|salsicha|linguica|kibe|almondega|patinho|tilapia|salmao|peru|presunto)\b/.test(t))return "Carne ou ovo";
+  if(k&&p*4/k>=0.3)return "Carne ou ovo";
+  return "";
+}
 const COMMON=new Set(PREF.map(p=>p[1]));
 function hasWord(t,a){return new RegExp("(^|[^a-z0-9])"+a.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"([^a-z0-9]|$)").test(t)}
 function longest(list,t){let best=null;for(const x of list)if(hasWord(t,x.a)&&(!best||x.a.length>best.a.length))best=x;return best}
@@ -122,6 +134,9 @@ const STOP=new Set(["de","do","da","dos","das","com","sem","e","um","uma","no","
 /* Encontra o alimento: {kind:"list",it,taco} | {kind:"extra",ex} | {kind:"free",name} | null */
 function matchFood(t,preferGroups){
   t=norm(t).replace(/\bpaes\b/g,"pao").replace(/\bpaezinhos?\b/g,"pao");if(!t)return null;
+  // produto salvo pelo rótulo citado em parte (ex.: "hamburguer rezende" → "Hambúrguer assado Rezende")
+  {const tk=t.split(" ").filter(w=>w.length>2&&!STOP.has(w));
+   const meu=tk.length>=2&&MEUS_IDX.find(x=>tk.every(w=>hasWord(x.a,w)));if(meu)return{kind:"extra",ex:meu.ex}}
   // nome completo da lista (ex.: "iogurte grego lacfree")
   let best=null;
   for(const it of ALL){if(it.key.length>=4&&hasWord(t,it.key)&&(!best||it.key.length>best.key.length||(it.key.length===best.key.length&&preferGroups?.includes(it.group))))best=it}
@@ -133,6 +148,8 @@ function matchFood(t,preferGroups){
   // todas as palavras contidas num nome da lista -> o nome mais curto
   const toks=t.split(" ").filter(w=>w.length>2&&!STOP.has(w));
   if(!toks.length)return null;
+  const meu=MEUS_IDX.find(x=>toks.every(w=>hasWord(x.a,w)));
+  if(meu)return{kind:"extra",ex:meu.ex};
   const hits=ALL.filter(it=>toks.every(w=>hasWord(it.key,w))).sort((a,b)=>a.key.length-b.key.length);
   return hits[0]?{kind:"list",it:hits[0]}:null;
 }
@@ -140,7 +157,9 @@ function matchFood(t,preferGroups){
 /* Converte alimento + gramas em registro com porções, kcal e macros */
 function toItem(m,grams){
   if(m.kind==="free"){const name=m.name[0].toUpperCase()+m.name.slice(1);return{name,grams:r0(grams),group:"Vegetal cru ou cozido",portions:0,kcal:r0(grams*0.2),p:r1(grams*0.012),c:r1(grams*0.035),f:r1(grams*0.002)}}
-  if(m.kind==="extra"){const [k,p,c,f]=m.ex.taco,x=grams/100;return{name:m.ex.name,grams:r0(grams),group:"Fora da lista",portions:0,kcal:r0(k*x),p:r1(p*x),c:r1(c*x),f:r1(f*x)}}
+  if(m.kind==="extra"){const [k,p,c,f]=m.ex.taco,x=grams/100,g=m.ex.group&&GBY[m.ex.group];
+    // produto do rótulo com grupo escolhido: conta porções pela equivalência de calorias do grupo
+    return{name:m.ex.name,grams:r0(grams),group:g?g.name:"Fora da lista",portions:g?r2(k*x/g.kcal):0,kcal:r0(k*x),p:r1(p*x),c:r1(c*x),f:r1(f*x)}}
   const it=m.it,g=GBY[it.group],portions=r2(grams/it.g);
   let mac;if(m.taco){const x=grams/100;mac={p:m.taco[1]*x,c:m.taco[2]*x,f:m.taco[3]*x}}else{const gm=GROUP_MACROS[it.group]||{p:0,c:0,f:0};mac={p:gm.p*portions,c:gm.c*portions,f:gm.f*portions}}
   return{name:it.name,grams:r0(grams),group:it.group,portions,kcal:r0(portions*g.kcal),p:r1(mac.p),c:r1(mac.c),f:r1(mac.f)};
@@ -212,4 +231,4 @@ function localParse(text,preferGroups){
 let LIST_PROMPT = null;
 function listPrompt() { return LIST_PROMPT ??= GROUPS.map(g => g.free ? `## ${g.name}: à vontade, 0 kcal` : `## ${g.name} (1 porção = ${g.kcal} kcal)\n` + g.items.map(i => `${i.name}: ${String(i.qty).replace('.', ',')} ${i.measure} = ${i.g}g`).join('\n')).join('\n\n'); }
 
-export { setMeusProdutos, listPrompt, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, matchFood, toItem, localParse };
+export { setMeusProdutos, grupoSugerido, listPrompt, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, matchFood, toItem, localParse };

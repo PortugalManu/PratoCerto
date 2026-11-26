@@ -1,11 +1,11 @@
 /* Prato Certo — app do celular (PWA).
  * Registros e dieta ficam no Firebase (sua conta Google) e, como cópia, no próprio celular. */
-import { setMeusProdutos, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
+import { setMeusProdutos, grupoSugerido, GROUPS, GBY, ALL, GROUP_MACROS, PREF_IDX, COMMON, norm, r0, r1, r2, itemByName, toItem, localParse } from './alimentos.js';
 import { firebaseConfig } from './firebase-config.js';
 import { getKey, setKey, testarChave, prepararFoto, lerPrato, lerFrase, lerDieta, lerRotulo } from './gemini.js';
 import { lerTextoDaFoto, entenderRotulo } from './rotulo.js';
 
-const APP_VERSAO = 11;
+const APP_VERSAO = 12;
 
 /* ===== Dieta de exemplo (até você colar a sua) ===== */
 const EXAMPLE_DIET = { example: true, importedAt: null, meals: [
@@ -393,6 +393,8 @@ function fillLabel(r, nome) {
   $('lbName').value = nome;
   $('lbPorcao').value = porcao ?? ''; $('lbKcal').value = pp[0] ?? ''; $('lbP').value = pp[1] ?? ''; $('lbC').value = pp[2] ?? ''; $('lbF').value = pp[3] ?? '';
   $('lbComi').value = porcao ?? '';
+  delete $('lbGroup').dataset.mexeu;
+  $('lbGroup').replaceChildren(...grupoOpts(grupoSugerido(nome, r.per100 || pp)));
   msg(r.achados >= 3 ? el('span', {}, 'Confira os números com o rótulo e diga quanto você comeu. ', el('strong', {}, 'Refeição: ' + rotulo.meal))
     : el('span', { class: 'status err' }, 'Não consegui ler tudo (foto tremida ou com reflexo?). Complete os números olhando o rótulo, ou tente outra foto mais de perto.'));
   $('labelForm').hidden = false; lbTotal();
@@ -401,19 +403,25 @@ function fillLabel(r, nome) {
 function lbVals() { const [porcao, k, p, c, f, comi] = lbIds.map(id => +String($(id).value).replace(',', '.') || 0); return { porcao, k, p, c, f, comi }; }
 function lbTotal() {
   const v = lbVals(), x = v.porcao ? v.comi / v.porcao : 0;
-  $('lbTotal').textContent = v.porcao && v.comi ? `Você comeu: ${r0(v.k * x)} kcal · P ${r1(v.p * x)}g · C ${r1(v.c * x)}g · G ${r1(v.f * x)}g` : 'Preencha a porção e quanto você comeu.';
+  const pc = lbPorcoes(v.k * x);
+  $('lbTotal').textContent = v.porcao && v.comi ? `Você comeu: ${r0(v.k * x)} kcal · P ${r1(v.p * x)}g · C ${r1(v.c * x)}g · G ${r1(v.f * x)}g` + (pc ? ` · conta ${fmtN(pc)} ${$('lbGroup').value}` : '') : 'Preencha a porção e quanto você comeu.';
 }
 lbIds.forEach(id => $(id).addEventListener('input', lbTotal));
+$('lbGroup').addEventListener('change', lbTotal);
+$('lbName').addEventListener('change', () => { if (!$('lbGroup').dataset.mexeu) $('lbGroup').value = grupoSugerido($('lbName').value, null) || $('lbGroup').value; lbTotal(); });
+$('lbGroup').addEventListener('input', () => { $('lbGroup').dataset.mexeu = '1'; });
+const grupoOpts = sel => [el('option', { value: '' }, 'Fora da lista (só calorias)'), ...GROUPS.filter(g => !g.free).map(g => el('option', { value: g.name, selected: g.name === sel }, `${g.name} (1 porção = ${g.kcal} kcal)`))];
+function lbPorcoes(kcal) { const g = GBY[$('lbGroup').value]; return g ? r2(kcal / g.kcal) : 0; }
 function closeLabel() { rotulo = null; $('labelBox').hidden = true; }
 async function labelAdd() {
-  const v = lbVals(), name = $('lbName').value.trim() || 'Produto do rótulo';
+  const v = lbVals(), name = ($('lbName').value.trim() || 'Produto do rótulo').replace(/[.,;:!]+$/, ''), group = $('lbGroup').value;
   if (!v.porcao || !v.k || !v.comi) { $('labelMsg').replaceChildren(el('span', { class: 'status err' }, 'Preencha porção, kcal e quanto você comeu.')); return; }
   const x = v.comi / v.porcao;
-  const item = { name, grams: r0(v.comi), group: 'Fora da lista', portions: 0, kcal: r0(v.k * x), p: r1(v.p * x), c: r1(v.c * x), f: r1(v.f * x) };
+  const item = { name, grams: r0(v.comi), group: group || 'Fora da lista', portions: lbPorcoes(v.k * x), kcal: r0(v.k * x), p: r1(v.p * x), c: r1(v.c * x), f: r1(v.f * x) };
   if ($('lbSalvar').checked) {
     const per100 = [v.k, v.p, v.c, v.f].map(n => r1(n / v.porcao * 100));
     const lista = (profile.produtos || []).filter(p => norm(p.name) !== norm(name));
-    profile.produtos = [...lista, { name, per100, porcao: v.porcao }];
+    profile.produtos = [...lista, { name, per100, porcao: v.porcao, group }];
     await save('profile', profile); setMeusProdutos(profile.produtos); renderProdutos();
   }
   const meal = rotulo?.meal || selMeal || guessMeal();
@@ -423,9 +431,9 @@ async function labelAdd() {
 function renderProdutos() {
   const box = $('produtosList'), lista = profile.produtos || [];
   if (!lista.length) { box.replaceChildren(el('p', { class: 'empty' }, 'Nenhum produto salvo ainda. Use “🏷️ Foto do rótulo” na aba Hoje.')); return; }
-  box.replaceChildren(...lista.map((p, i) => el('div', { class: 'rev' },
-    el('span', { class: 'n' }, p.name),
-    el('span', { class: 'm', style: 'grid-column:auto' }, `porção ${p.porcao}g · ${r0(p.per100[0] * p.porcao / 100)} kcal`),
+  box.replaceChildren(...lista.map((p, i) => el('div', { class: 'rev', style: 'grid-template-columns:1fr auto auto' },
+    el('span', { class: 'n' }, p.name, el('br'), el('small', { class: 'hint' }, `porção ${p.porcao}g · ${r0(p.per100[0] * p.porcao / 100)} kcal`)),
+    el('select', { 'aria-label': 'Grupo de ' + p.name, style: 'max-width:150px', onchange: async e => { lista[i] = { ...p, group: e.target.value }; profile.produtos = [...lista]; await save('profile', profile); setMeusProdutos(profile.produtos); } }, ...grupoOpts(p.group || '')),
     el('button', { class: 'ghost icon', 'aria-label': 'Apagar ' + p.name, onclick: async () => { profile.produtos = lista.filter((_, j) => j !== i); await save('profile', profile); setMeusProdutos(profile.produtos); renderProdutos(); } }, '✕'))));
 }
 $('labelBtn').onclick = () => $('labelInput').click();
